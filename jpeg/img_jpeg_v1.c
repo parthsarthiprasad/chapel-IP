@@ -65,6 +65,17 @@ int JPEG_isa(const char *fname) {
   int marker;
   int markerSize;
   int four;
+/*
+  for jfif and exif support
+  UInt16 soi = br.ReadUInt16();  // Start of Image (SOI) marker (FFD8)
+                UInt16 marker = br.ReadUInt16(); // JFIF marker (FFE0) EXIF marker (FFE1)
+                UInt16 markerSize = br.ReadUInt16(); // size of marker data (incl. marker)
+                UInt32 four = br.ReadUInt32(); // JFIF 0x4649464a or Exif  0x66697845
+
+                Boolean isJpeg = soi == 0xd8ff && (marker & 0xe0ff) == 0xe0ff;
+                Boolean isExif = isJpeg && four == 0x66697845;
+                Boolean isJfif = isJpeg && four == 0x4649464a;
+  */
 
   /* For Windows, make this "rb". */
   fin = fopen(fname, "r");
@@ -105,92 +116,156 @@ int JPEG_isa(const char *fname) {
                < 0 on failure (value depends on error)
     modifies:  img
 ***/
-int JPEG_read(const char *fname, rgbimage **img) {
-  FILE *fin;                            /* file handle to read from */
-  png_structp ptr;                      /* internal reference to PNG data */
-  jpeg_decompress_struct info;                       /* picture information */
-  png_bytep *rows;                      /* each row in image */
-  png_byte header[8];                   /* PNG file verification */
-  char *errmsg;                         /* error message */
-  int ispng;                            /* true if PNG file */
-  int w, h;                             /* image size */
-  int nchan;                            /* number of color channels */
-  int x, y, xy;                         /* pixel coordinates/index */
+int JPEG_read (const char * fname , rgbimage **img)
+{
+  FILE * fin;		/* source file */
+  /* This struct contains the JPEG decompression parameters and pointers to
+   * working space (which is allocated as needed by the JPEG library).
+   */
+  struct jpeg_decompress_struct cinfo;
+  /* We use our private extension JPEG error handler.
+   * Note that this struct must live as long as the main JPEG parameter
+   * struct, to avoid dangling-pointer problems.
+   */
+  struct my_error_mgr jerr;
+  /* More stuff */
+  
+  JSAMPARRAY buffer;		/* Output row buffer */
+  int row_stride;		/* physical row width in output buffer */
+	int w;
+	int h;
+	int numChannels;
+	int x, y, xy;                         /* pixel coordinates/index */
   int i;
   int retval;
 
-  fin = NULL;
-  ptr = NULL;
-  info = NULL;
+  /* In this example we want to open the input file before doing anything else,
+   * so that the setjmp() error recovery below can assume the file is open.
+   * VERY IMPORTANT: use "b" option to fopen() if you are on a machine that
+   * requires it in order to read binary files.
+   */
+  //  uint8_t * soi;
+  //  bool isjpeg;
 
-  if (NULL == fname) {
-    fin = stdin;
-  } else {
-    /* For Windows, make this "rb". */
-    fin = fopen(fname, "r");
-    if (NULL == fin) {
-      errmsg = strerror(errno);
-      printf("can't open file %s to read: %s\n", fname, errmsg);
-      return -1;
-    }
+  //  fin = NULL;
+  //  if (NULL = fname){
+  //      fin = stdin;
+  //  }else{
+  //      /* For Windows, make this "rb". */
+  //      fin = fopen(fname,"r");
+  //      if(NULL==fin){
+  //       errmsg = strerror(errno);
+  //       printf("can't open file %s to read: %s\n", fname, errmsg);
+  //       return -1;
+  //      }
+  //  }
+  //   /* Verify is a jpeg. */
+  // fread(&soi,2,1,fin);
+  // //retval = fread(&header, 1, 8, fin);
+  // retval = (soi[0] == 0xff && soi[1] == 0xd8) ? 0 : -1;
+  // if (!retval) {
+  //   printf("only read %d header bytes from %s\n", retval, fname);
+  //   return 0;
+  // }
+  // isjpeg = !retval
+
+	// if (!isjpeg) {
+  //   printf("%s is not in PNG format\n", fname);
+  //   retval = -1;
+  //   goto cleanup;
+  // }
+
+  /* Step 1: allocate and initialize JPEG decompression object */
+
+  /* We set up the normal JPEG error routines, then override error_exit. */
+  cinfo.err = jpeg_std_error(&jerr.pub);
+  jerr.pub.error_exit = my_error_exit;
+  /* Establish the setjmp return context for my_error_exit to use. */
+  if (setjmp(jerr.setjmp_buffer)) {
+    /* If we get here, the JPEG code has signaled an error.
+     * We need to clean up the JPEG object, close the input file, and return.
+     */
+    jpeg_destroy_decompress(&cinfo);
+    fclose(fin);
+    return 0;
+  }
+  /* Now we can initialize the JPEG decompression object. */
+  jpeg_create_decompress(&cinfo);
+
+  /* Step 2: specify data source (eg, a file) */
+
+  jpeg_stdio_src(&cinfo, fin);
+
+  /* Step 3: read file parameters with jpeg_read_header() */
+
+  (void) jpeg_read_header(&cinfo, TRUE);
+  /* We can ignore the return value from jpeg_read_header since
+   *   (a) suspension is not possible with the stdio data source, and
+   *   (b) we passed TRUE to reject a tables-only JPEG file as an error.
+   * See libjpeg.txt for more info.
+   */
+
+  /* Step 4: set parameters for decompression */
+
+  /* In this example, we don't need to change any of the defaults set by
+   * jpeg_read_header(), so we do nothing here.
+   */
+
+  /* Step 5: Start decompressor */
+
+  (void) jpeg_start_decompress(&cinfo);
+  /* We can ignore the return value since suspension is not possible
+   * with the stdio data source.
+   */
+
+  /* We may need to do some setup of our own at this point before reading
+   * the data.  After jpeg_start_decompress() we have the correct scaled
+   * output image dimensions available, as well as the output colormap
+   * if we asked for color quantization.
+   * In this example, we need to make an output work buffer of the right size.
+   */ 
+  	//width of the output
+	w= cinfo.output_width;
+	h=cinfo.output_height;
+	numChannels=cinfo.num_components;
+	/* JSAMPLEs per row in output buffer */
+  row_stride = cinfo.output_width * cinfo.output_components;
+
+	
+  /* Make a one-row-high sample array that will go away when done with image */
+  buffer = (*cinfo.mem->alloc_sarray)
+		((j_common_ptr) &cinfo, JPOOL_IMAGE, row_stride, 1);
+
+  /* Step 6: while (scan lines remain to be read) */
+  /*           jpeg_read_scanlines(...); */
+
+  /* Here we use the library's state variable cinfo.output_scanline as the
+   * loop counter, so that we don't have to keep track ourselves.
+   */
+  while (cinfo.output_scanline < cinfo.output_height) {
+    /* jpeg_read_scanlines expects an array of pointers to scanlines.
+     * Here the array is only one element long, but you could ask for
+     * more than one scanline at a time if that's more convenient.
+     */
+    (void) jpeg_read_scanlines(&cinfo, buffer, 1);
+    /* Assume put_scanline_someplace wants a pointer and sample count. */
+    put_scanline_someplace(buffer[0], row_stride);
   }
 
-  /* Verify is a jpeg. */
-  retval = fread(&header, 1, 8, fin);
-  if (8 != retval) {
-    printf("only read %d header bytes from %s\n", retval, fname);
-    return -1;
-  }
+  /* Step 7: Finish decompression */
 
-  ispng = !png_sig_cmp(header, 0, 8);
-  if (!ispng) {
-    printf("%s is not in PNG format\n", fname);
-    retval = -1;
-    goto cleanup;
-  }
+  (void) jpeg_finish_decompress(&cinfo);
+  /* We can ignore the return value since suspension is not possible
+   * with the stdio data source.
+   */
 
-  ptr = png_create_read_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
-  if (NULL == ptr) {
-    printf("could not read main PNG structure from %s\n", fname);
-    retval = -1;
-    goto cleanup;
-  }
+  /* Step 8: Release JPEG decompression object */
 
-  info = png_create_info_struct(ptr);
-  if (NULL == info) {
-    printf("could not read PNG starting info from %s\n", fname);
-    retval = -1;
-    goto cleanup;
-  }
-    
-  if (setjmp(png_jmpbuf(ptr))) {
-    retval = -1;
-    goto cleanup;
-  }
+  /* This is an important step since it will release a good deal of memory. */
 
-  /* Prepare to read */
-  png_init_io(ptr, fin);
-  png_set_sig_bytes(ptr, 8);
-
-  png_read_png(ptr, info, PNG_TRANSFORM_IDENTITY, NULL);
-  rows = png_get_rows(ptr, info);
-  h = png_get_image_height(ptr, info);
-  w = png_get_image_width(ptr, info);
-  nchan = png_get_channels(ptr, info);
-
-  if ((8 != png_get_bit_depth(ptr, info)) || 
-      ((2 != png_get_color_type(ptr, info) && 
-       (0 != png_get_color_type(ptr,info))))) {
-    printf("PNG: unsupported bit depth %d or color type %d\n",
-           png_get_bit_depth(ptr, info), png_get_color_type(ptr, info));
-    retval = -1;
-    goto cleanup;
-  }
-
-  retval = alloc_rgbimage(img, w, h);
-  CLEANUPONERR;
-
-  if (1 == nchan) {
+	retval = alloc_rgbimage(img, w, h);
+	CLEANUPONERR;
+	if (1 == nchan) {
 	  /* Note this correctly reads 1-channel greyscale, where r == g == b. */
     for (y=0, xy=0; y<h; y++) {
       for (x=0; x<w; x++, xy++) {
@@ -214,28 +289,33 @@ int JPEG_read(const char *fname, rgbimage **img) {
   }
 
   retval = 0;
+  
+	cleanup:
+	jpeg_destroy_decompress(&cinfo);
 
- cleanup:
-  if (NULL != fin) {
-    retval = fclose(fin);
-    if (0 != retval) {
+  /* After finish_decompress, we can close the input file.
+   * Here we postpone it until after no more JPEG errors are possible,
+   * so as to simplify the setjmp error logic above.  (Actually, I don't
+   * think that jpeg_destroy can do an error exit, but why assume anything...)
+   */
+	 if(NULL != fin){
+		 retval = fclose(fin);
+		 if (0 != retval) {
       errmsg = strerror(errno);
       printf("problem closing %s: %s\n", fname, errmsg);
       retval = -1;
     }
-  }
+	 }
+  
 
-  /* Note that png_destroy removes all memory allocated for the image, 
-     including rows. */
-  if (NULL != ptr) {
-    if (NULL != info) {
-      png_destroy_read_struct(&ptr, &info, NULL);
-    } else {
-      png_destroy_read_struct(&ptr, NULL, NULL);
-    }
-  }
 
-  return retval;
+  /* At this point you may want to check to see whether any corrupt-data
+   * warnings occurred (test whether jerr.pub.num_warnings is nonzero).
+   */
+	
+ 
+  /* And we're done! */
+  return 1;
 }
 
 /***
