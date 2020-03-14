@@ -1,6 +1,6 @@
 
 /*****
-      img_jpeg_v1.h -
+      img_jpeg_v2.h -
       Public declarations for the JPEG file support.  Also includes support
       for our in-memory image data structure.
 

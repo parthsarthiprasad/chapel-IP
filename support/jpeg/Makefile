@@ -1,6 +1,6 @@
 
 # Makefile for native and Chapel code.
-# c 2015-2018 Primordial Machine Vision Systems, Inc.
+# c @parthsarthiprasad
 
 ## C compiler setup
 export CC = gcc

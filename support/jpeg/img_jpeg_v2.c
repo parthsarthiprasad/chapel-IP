@@ -1,6 +1,6 @@
 
 /*****
-      img_jpeg_v1.c -
+      img_jpeg_v2.c -
       Get and put JPEG files from/to disk.  Also includes routines to support
       our in-memory image data structure.
 
