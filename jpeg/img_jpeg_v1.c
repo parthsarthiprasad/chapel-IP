@@ -25,6 +25,8 @@
 #include "img_jpeg_v1.h"
 
 
+
+
 /**** Macros ****/
 
 /***
@@ -42,6 +44,56 @@
                    'cleanup' to jump to.
 ***/
 #define CLEANUPONERR   { if (retval < 0) { goto cleanup; }}
+
+
+/*
+ * ERROR HANDLING:
+ *
+ * The JPEG library's standard error handler (jerror.c) is divided into
+ * several "methods" which you can override individually.  This lets you
+ * adjust the behavior without duplicating a lot of code, which you might
+ * have to update with each future release.
+ *
+ * Our example here shows how to override the "error_exit" method so that
+ * control is returned to the library's caller when a fatal error occurs,
+ * rather than calling exit() as the standard error_exit method does.
+ *
+ * We use C's setjmp/longjmp facility to return control.  This means that the
+ * routine which calls the JPEG library must first execute a setjmp() call to
+ * establish the return point.  We want the replacement error_exit to do a
+ * longjmp().  But we need to make the setjmp buffer accessible to the
+ * error_exit routine.  To do this, we make a private extension of the
+ * standard JPEG error handler object.  (If we were using C++, we'd say we
+ * were making a subclass of the regular error handler.)
+ *
+ * Here's the extended error handler struct:
+ */
+
+struct my_error_mgr {
+  struct jpeg_error_mgr pub;	/* "public" fields */
+
+  jmp_buf setjmp_buffer;	/* for return to caller */
+};
+
+typedef struct my_error_mgr * my_error_ptr;
+
+/*
+ * Here's the routine that will replace the standard error_exit method:
+ */
+
+METHODDEF(void)
+my_error_exit (j_common_ptr cinfo)
+{
+  /* cinfo->err really points to a my_error_mgr struct, so coerce pointer */
+  my_error_ptr myerr = (my_error_ptr) cinfo->err;
+
+  /* Always display the message. */
+  /* We could postpone this until after returning, if we chose. */
+  (*cinfo->err->output_message) (cinfo);
+
+  /* Return control to the setjmp point */
+  longjmp(myerr->setjmp_buffer, 1);
+}
 
 
 
@@ -107,7 +159,7 @@ int JPEG_isa(const char *fname) {
 }
 
 /***
-    PNG_read:  Bring in a PNG image.  See the libpng manpage for what we're
+    JPEG_read:  Bring in a PNG image.  See the libpng manpage for what we're
                doing.  Stored internally as an rgbimage.  Alpha channel is
                ignored.
     args:      fname - name of file with image, if NULL take from stdin
@@ -135,9 +187,10 @@ int JPEG_read (const char * fname , rgbimage **img)
 	int w;
 	int h;
 	int numChannels;
-	int x, y, xy;                         /* pixel coordinates/index */
+	int x, y, xy=0;                         /* pixel coordinates/index */
   int i;
   int retval;
+  
 
   /* In this example we want to open the input file before doing anything else,
    * so that the setjmp() error recovery below can assume the file is open.
@@ -228,6 +281,9 @@ int JPEG_read (const char * fname , rgbimage **img)
 	w= cinfo.output_width;
 	h=cinfo.output_height;
 	numChannels=cinfo.num_components;
+  //outputcomponents contain numchannels*row
+  retval = alloc_rgbimage(img, w, h);
+  CLEANUPONERR;
 	/* JSAMPLEs per row in output buffer */
   row_stride = cinfo.output_width * cinfo.output_components;
 
@@ -248,6 +304,30 @@ int JPEG_read (const char * fname , rgbimage **img)
      * more than one scanline at a time if that's more convenient.
      */
     (void) jpeg_read_scanlines(&cinfo, buffer, 1);
+
+
+	if (1 == numChannels) {
+	  /* Note this correctly reads 1-channel greyscale, where r == g == b. */
+      
+      for (x=0; x<w; x++, xy++) {
+        (*img)->r[xy] = buffer[x];
+        (*img)->g[xy] = buffer[x];
+        (*img)->b[xy] = buffer[x];
+      }
+    
+  } else if ((3 == numChannels) || (4 == numChannels)) {
+    
+      for (x=0, i=0; x<w; x++, xy++, i+=numChannels) {
+        (*img)->r[xy] = buffer[i];
+        (*img)->g[xy] = buffer[i+1];
+        (*img)->b[xy] = buffer[i+2];
+      }
+  } else {
+    printf("JPEG: do not support %d channels\n", nchan);
+    retval = -1;
+    goto cleanup;
+  }
+
     /* Assume put_scanline_someplace wants a pointer and sample count. */
     put_scanline_someplace(buffer[0], row_stride);
   }
@@ -263,30 +343,7 @@ int JPEG_read (const char * fname , rgbimage **img)
 
   /* This is an important step since it will release a good deal of memory. */
 
-	retval = alloc_rgbimage(img, w, h);
-	CLEANUPONERR;
-	if (1 == nchan) {
-	  /* Note this correctly reads 1-channel greyscale, where r == g == b. */
-    for (y=0, xy=0; y<h; y++) {
-      for (x=0; x<w; x++, xy++) {
-        (*img)->r[xy] = rows[y][x];
-        (*img)->g[xy] = rows[y][x];
-        (*img)->b[xy] = rows[y][x];
-      }
-    }
-  } else if ((3 == nchan) || (4 == nchan)) {
-    for (y=0, xy=0; y<h; y++) {
-      for (x=0, i=0; x<w; x++, xy++, i+=nchan) {
-        (*img)->r[xy] = rows[y][i];
-        (*img)->g[xy] = rows[y][i+1];
-        (*img)->b[xy] = rows[y][i+2];
-      }
-    }
-  } else {
-    printf("PNG: do not support %d channels\n", nchan);
-    retval = -1;
-    goto cleanup;
-  }
+
 
   retval = 0;
   
@@ -326,7 +383,7 @@ int JPEG_read (const char * fname , rgbimage **img)
     returns:   0 if successful
                < 0 on failure (value depends on error)
 ***/
-int PNG_write(const char *fname, rgbimage *img) {
+int JPEG_write(const char *fname, rgbimage *img) {
   FILE *fout;                           /* file handle to write to */
   png_structp ptr;                      /* internal reference to PNG data */
   png_infop info;                       /* picture information */
@@ -371,7 +428,7 @@ int PNG_write(const char *fname, rgbimage *img) {
     goto cleanup;
   }
     
-  if (setjmp(png_jmpbuf(ptr))) {
+  if ((png_jmpbuf(ptr))) {
     retval = -1;
     goto cleanup;
   }
