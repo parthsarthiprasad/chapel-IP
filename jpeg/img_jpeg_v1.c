@@ -21,7 +21,7 @@
 #include <jpeglib.h>
 #include <errno.h>
 #include <string.h>
-
+#include <setjmp.h>
 #include "img_jpeg_v1.h"
 
 
@@ -107,13 +107,12 @@ my_error_exit (j_common_ptr cinfo)
 ***/
 int JPEG_isa(const char *fname) {
   FILE *fin;                            /* file handle to read from */
-  png_byte header[8];                   /* PNG file verification */
-  struct jpeg_error_mgr jerr                        /* error message */
+  struct jpeg_error_mgr jerr  ;                   /* error message */
   int isjpeg;                            /* true if PNG file */
   char * buffer;                        // to read start index 
-  uint8_t * soi;
+  int * soi;
+  char* errmsg;
   int retval;
-  
   int marker;
   int markerSize;
   int four;
@@ -146,7 +145,7 @@ int JPEG_isa(const char *fname) {
     return 0;
   }
 
-  isjpeg = !retval
+  isjpeg = !retval;
 
   retval = fclose(fin);
   if (0 != retval) {
@@ -190,6 +189,7 @@ int JPEG_read (const char * fname , rgbimage **img)
 	int x, y, xy=0;                         /* pixel coordinates/index */
   int i;
   int retval;
+  char * errmsg;
   
 
   /* In this example we want to open the input file before doing anything else,
@@ -310,26 +310,26 @@ int JPEG_read (const char * fname , rgbimage **img)
 	  /* Note this correctly reads 1-channel greyscale, where r == g == b. */
       
       for (x=0; x<w; x++, xy++) {
-        (*img)->r[xy] = buffer[x];
-        (*img)->g[xy] = buffer[x];
-        (*img)->b[xy] = buffer[x];
+        (*img)->r[xy] = buffer[0][x];
+        (*img)->g[xy] = buffer[0][x];
+        (*img)->b[xy] = buffer[0][x];
       }
     
   } else if ((3 == numChannels) || (4 == numChannels)) {
     
       for (x=0, i=0; x<w; x++, xy++, i+=numChannels) {
-        (*img)->r[xy] = buffer[i];
-        (*img)->g[xy] = buffer[i+1];
-        (*img)->b[xy] = buffer[i+2];
+        (*img)->r[xy] = buffer[0][i];
+        (*img)->g[xy] = buffer[0][i+1];
+        (*img)->b[xy] = buffer[0][i+2];
       }
   } else {
-    printf("JPEG: do not support %d channels\n", nchan);
+    printf("JPEG: do not support %d channels\n", numChannels);
     retval = -1;
     goto cleanup;
   }
 
     /* Assume put_scanline_someplace wants a pointer and sample count. */
-    put_scanline_someplace(buffer[0], row_stride);
+    //put_scanline_someplace(buffer[0], row_stride);
   }
 
   /* Step 7: Finish decompression */
@@ -383,7 +383,7 @@ int JPEG_read (const char * fname , rgbimage **img)
     returns:   0 if successful
                < 0 on failure (value depends on error)
 ***/
-int JPEG_write (const char * fname, int quality = 75,  rgbimage *img )
+int JPEG_write (const char * fname, rgbimage *img,int quality = 75 )
 {
   /* This struct contains the JPEG compression parameters and pointers to
    * working space (which is allocated as needed by the JPEG library).
@@ -406,7 +406,7 @@ int JPEG_write (const char * fname, int quality = 75,  rgbimage *img )
   JSAMPROW row_pointer[1];	/* pointer to JSAMPLE row[s] */
   int row_stride;		/* physical row width in image buffer */
 	int retval=-1;
-
+  char * errmsg;
   /* Step 1: allocate and initialize JPEG compression object */
 
   /* We have to set up the error handler first, in case the initialization
@@ -427,7 +427,9 @@ int JPEG_write (const char * fname, int quality = 75,  rgbimage *img )
    * requires it in order to write binary files.
    */
   if ((fout = fopen(fname, "wb")) == NULL) {
-    printf(stderr, "can't open %s\n", fame);
+    errmsg = strerror(errno);
+   
+    printf("can't open %s: %s\n", fname, errmsg);
     return -1;
 		goto cleanup;
   }
@@ -438,8 +440,8 @@ int JPEG_write (const char * fname, int quality = 75,  rgbimage *img )
   /* First we supply a description of the input image.
    * Four fields of the cinfo struct must be filled in:
    */
-  cinfo.image_width = rgbimage.ncol; 	/* image width and height, in pixels */
-  cinfo.image_height = rgbimage.nrow;
+  cinfo.image_width = img->ncol; 	/* image width and height, in pixels */
+  cinfo.image_height = img->nrow;
   cinfo.input_components = 3;		/* # of color components per pixel */
   cinfo.in_color_space = JCS_RGB; 	/* colorspace of input image */
   /* Now use the library's routine to set default compression parameters.
