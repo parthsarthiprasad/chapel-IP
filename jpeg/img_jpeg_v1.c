@@ -13,7 +13,7 @@
         read_rgb - retrieve the value of a pixel
         write_rgb - set the value of a pixel
 
-      c 2015-2018 Primordial Machine Vision Systems, Inc.
+      @parthsarthiprasad
 *****/
 
 #include <stdio.h>
@@ -22,6 +22,7 @@
 #include <errno.h>
 #include <string.h>
 #include <setjmp.h>
+
 #include "img_jpeg_v1.h"
 
 
@@ -45,7 +46,7 @@
 ***/
 #define CLEANUPONERR   { if (retval < 0) { goto cleanup; }}
 
-
+#define JPEG_write(...) JPEG_write_default((f_args){__VA_ARGS__});
 /*
  * ERROR HANDLING:
  *
@@ -68,6 +69,12 @@
  *
  * Here's the extended error handler struct:
  */
+//struct for wrapper funtion JPEG_read
+typedef struct {
+const char * fname; 
+rgbimage *img;
+ int quality;
+} f_args;
 
 struct my_error_mgr {
   struct jpeg_error_mgr pub;	/* "public" fields */
@@ -98,6 +105,8 @@ my_error_exit (j_common_ptr cinfo)
 
 
 /**** JPEG Functions ****/
+
+int JPEG_write_wrapper(const char * fname, rgbimage *img, int quality );
 
 /***
     JPEG_isa:  Read the header of the file and see if it's in JPEG format.
@@ -374,6 +383,13 @@ int JPEG_read (const char * fname , rgbimage **img)
   /* And we're done! */
   return 1;
 }
+// wrapper function to provide default value 
+int JPEG_write_default( f_args in){
+    const char * fname = in.fname;
+    rgbimage *img = in.img;
+    int quality = in.quality?in.quality:75;
+    return JPEG_write_wrapper(fname,img,quality);
+}
 
 /***
     PNG_write:  Copy a image to disk.  See the libpng manpage for the flow
@@ -383,7 +399,8 @@ int JPEG_read (const char * fname , rgbimage **img)
     returns:   0 if successful
                < 0 on failure (value depends on error)
 ***/
-int JPEG_write (const char * fname, rgbimage *img,int quality = 75 )
+
+int JPEG_write_wrapper(const char * fname, rgbimage *img, int quality )
 {
   /* This struct contains the JPEG compression parameters and pointers to
    * working space (which is allocated as needed by the JPEG library).

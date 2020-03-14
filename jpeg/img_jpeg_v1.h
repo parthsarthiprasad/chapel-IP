@@ -14,9 +14,9 @@
         write_rgb - set a pixel
 
       Required Libraries:
-        jpeglib
+        libjpeg
 
-      c 2015-2018 Primordial Machine Vision Systems, Inc.
+      @parthsarthiprasad
 *****/
 
 #ifndef _IMGJPEG
@@ -40,7 +40,9 @@ typedef struct _rgbimage {
   uchar *b;                             /* blue plane */
 } rgbimage;
 
-
+extern "C" {
+#include "jpeglib.h"
+}
 /*** External Functions ***/
 
 /* test if a file is in JPEG format, returning true if so, 0 if not
@@ -61,7 +63,7 @@ extern int JPEG_read(const char *, rgbimage **);
      img - image to write
    returns < 0 on error
 */
-extern int JPEG_write(const char *, rgbimage *);
+extern int JPEG_write(const char *, rgbimage * , int);
 
 /* allocate an image in our format, initializing contents to 0
      img - image to create (frees old if non-NULL)
