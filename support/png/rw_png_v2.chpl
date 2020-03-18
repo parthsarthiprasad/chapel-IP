@@ -32,12 +32,9 @@ extern record rgbimage {
   var b : c_ptr(c_uchar);               /* blue plane */
 } 
 
-// extern class rgbimage {
-//   var ncol : c_int; var nrow : c_int; var npix : c_int; var r : c_ptr(c_uchar); var g : c_ptr(c_uchar); var b : c_ptr(c_uchar); } ;
-
 /* Our variables */
-//var abc : rgbimage ;
-var rgb : c_ptr(rgbimage)= nil;                     /* the image we read */
+var abc : rgbimage ;
+var rgb : c_ptr(rgbimage) = nil;                     /* the image we read */
 var xy : int(32);                       /* 1D index of x, y coord */
 
 /* External img_png linkage. */
@@ -61,17 +58,17 @@ extern proc write_rgb(img : rgbimage, x, y : c_int, r, g, b : c_uchar) : c_int;
    write it back out.  Finally we need to free the allocation made in 
    PNG_read. */
 
-PNG_read(inname.c_str(), rgb);
+PNG_read(inname.c_str(), rgb );
 
 /* Now we can access the fields directly. */
-//xy = (y * rgbimage.ncol) + x;
-writef("\nRead %4i x %4i PNG image\n", rgb.ncol, rgb.nrow);
+xy = (y * abc.ncol) + x;
+writef("\nRead %4i x %4i PNG image\n", abc.ncol, abc.nrow);
 writef("At %4i,%4i      R %3u  G %3u  B %3u\n\n", x,y, 
-       rgb.r(xy), rgb.g(xy), rgb.b(xy));
+       abc.r(xy), abc.g(xy), abc.b(xy));
 
-rgb.r(xy) = 1;
-rgb.g(xy) = 2;
-rgb.b(xy) = 3;
+abc.r(xy) = 1;
+abc.g(xy) = 2;
+abc.b(xy) = 3;
 PNG_write(outname.c_str(), rgb);
 
 free_rgbimage(rgb);
